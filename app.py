@@ -539,6 +539,19 @@ def chat_stream():
 def admin_heatmap():
     return render_template("admin_heatmap.html")
 
+@app.route("/setup/promote_me")
+@login_required
+def setup_promote_me():
+    token = request.args.get("token", "")
+    if token != os.getenv("ADMIN_SETUP_TOKEN"):
+        return "Forbidden", 403
+    u = User.query.get(current_user.id)
+    if not u:
+        return "User not found", 404
+    u.role = "admin"
+    db.session.commit()
+    return "You are now admin. Remove this route and the token!"
+
 @app.route("/leaderboard")
 @login_required
 def leaderboard():
