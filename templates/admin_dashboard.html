@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+<h2>Admin Dashboard</h2>
+
+<div class="alert alert-secondary d-flex gap-2 align-items-center">
+  <a class="btn btn-sm btn-primary" href="{{ url_for('admin_review', tab='pending') }}">Open Review Console</a>
+  <span class="ms-2">Queues:</span>
+  <span class="badge bg-primary">Pending: {{ pending_count }}</span>
+  <span class="badge bg-success">Accepted: {{ approved_count }}</span>
+  <span class="badge bg-danger">Rejected: {{ rejected_count }}</span>
+</div>
+
+<h3 class="mt-4">Direct to Admin Check (AUTO_OK)</h3>
+<ul class="list-group mb-4">
+  {% for s in auto_ok %}
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>#{{ s.id }} — {{ s.user.username }} — {{ s.created_at }} — <i>{{ s.report_type.replace('_',' ')|title }}</i></span>
+      <div class="btn-group">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('result', sid=s.id) }}">view</a>
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_review', tab='pending') }}#s{{ s.id }}">review</a>
+      </div>
+    </li>
+  {% else %}
+    <li class="list-group-item text-muted">No AUTO_OK submissions yet.</li>
+  {% endfor %}
+</ul>
+
+<h3>Needs Re-Check</h3>
+<ul class="list-group">
+  {% for s in rechecks %}
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>#{{ s.id }} — {{ s.user.username }} — {{ s.created_at }} — <i>{{ s.report_type.replace('_',' ')|title }}</i></span>
+      <div class="btn-group">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('result', sid=s.id) }}">view</a>
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_review', tab='pending') }}#s{{ s.id }}">review</a>
+      </div>
+    </li>
+  {% else %}
+    <li class="list-group-item text-muted">No RECHECK submissions yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

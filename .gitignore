@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.vscode/
+.idea/
+.DS_Store
+.env
+*.key
+*.pem
+instance/
+uploads/
+*.sqlite3
+*.db
+site.db

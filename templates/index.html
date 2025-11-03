@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Report{% endblock %}
+{% block content %}
+<h2 class="mb-3">Submit a report</h2>
+
+<form id="upload-form" method="post" enctype="multipart/form-data" class="card p-3 shadow-sm">
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Photo</label>
+      <!-- keeps normal file upload; capture hints phones to open camera -->
+      <input class="form-control" type="file" name="photo" accept="image/*" capture="environment" required>
+      <div class="form-text">Max 10MB. JPG/PNG/WEBP/BMP supported.</div>
+
+      <button type="button" id="openCameraBtn" class="btn btn-outline-primary btn-sm mt-2">
+        📷 Use camera
+      </button>
+    </div>
+
+    <div class="col-md-6">
+      <label class="form-label">Category</label>
+      <select class="form-select" name="report_type">
+        <option value="illegal_dumping">Illegal dumping</option>
+        <option value="volunteer_works">Volunteer works</option>
+      </select>
+
+      <label class="form-label mt-3">Message (optional)</label>
+      <textarea class="form-control" name="message" rows="3" placeholder="Add a note..."></textarea>
+
+      <!-- Hidden fallback GPS -->
+      <input type="hidden" name="lat" id="lat">
+      <input type="hidden" name="lon" id="lon">
+      <div class="small text-muted mt-2" id="geoStatus">Trying to get your location…</div>
+    </div>
+  </div>
+
+  <div class="mt-3 d-flex gap-2">
+    <button class="btn btn-primary">Submit</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('public_map') }}">View Community Map</a>
+  </div>
+</form>
+
+<!-- Camera overlay -->
+<div id="camOverlay" class="position-fixed top-0 start-0 w-100 h-100 d-none"
+     style="background: rgba(0,0,0,0.65); z-index: 1050;">
+  <div class="container h-100 d-flex align-items-center justify-content-center">
+    <div class="card shadow" style="max-width: 720px; width: 100%;">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Camera</strong>
+        <button class="btn btn-sm btn-outline-secondary" id="closeCameraBtn">Close</button>
+      </div>
+      <div class="card-body">
+        <div class="ratio ratio-4x3 bg-dark mb-3" style="border-radius: .5rem; overflow: hidden;">
+          <video id="video" playsinline autoplay muted></video>
+          <canvas id="canvas" class="d-none"></canvas>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-primary" id="captureBtn">Capture</button>
+          <button class="btn btn-success d-none" id="usePhotoBtn">Use this photo</button>
+          <button class="btn btn-outline-secondary d-none" id="retakeBtn">Retake</button>
+        </div>
+        <div id="camError" class="text-danger mt-2 d-none"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== Geolocation to hidden fields =====
+(function(){
+  const geoStatus = document.getElementById('geoStatus');
+  if (!navigator.geolocation) {
+    geoStatus.textContent = 'Browser geolocation not available. We will use photo EXIF if present.';
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const { latitude, longitude } = pos.coords || {};
+      if (typeof latitude === 'number' && typeof longitude === 'number') {
+        document.getElementById('lat').value = latitude.toFixed(6);
+        document.getElementById('lon').value = longitude.toFixed(6);
+        geoStatus.textContent = `Location captured: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+      } else {
+        geoStatus.textContent = 'Could not read coordinates.';
+      }
+    },
+    _err => {
+      geoStatus.textContent = 'Location permission denied or unavailable. We will use photo EXIF if present.';
+    },
+    { enableHighAccuracy: true, maximumAge: 60000, timeout: 8000 }
+  );
+})();
+
+// ===== Simple camera overlay (webcam/phone) =====
+const overlay   = document.getElementById('camOverlay');
+const video     = document.getElementById('video');
+const canvas    = document.getElementById('canvas');
+const openBtn   = document.getElementById('openCameraBtn');
+const closeBtn  = document.getElementById('closeCameraBtn');
+const capBtn    = document.getElementById('captureBtn');
+const useBtn    = document.getElementById('usePhotoBtn');
+const retakeBtn = document.getElementById('retakeBtn');
+const camErr    = document.getElementById('camError');
+
+let stream = null;
+let capturedBlob = null;
+
+function showOverlay(show) { overlay.classList.toggle('d-none', !show); }
+async function startCamera(){
+  camErr.classList.add('d-none');
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    video.srcObject = stream;
+  }catch(e){
+    camErr.textContent = "Camera access failed: " + e.message;
+    camErr.classList.remove('d-none');
+  }
+}
+function stopCamera(){
+  if (stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+  video.srcObject = null;
+}
+
+openBtn.addEventListener('click', async () => {
+  showOverlay(true);
+  canvas.classList.add('d-none');
+  video.classList.remove('d-none');
+  useBtn.classList.add('d-none');
+  retakeBtn.classList.add('d-none');
+  capBtn.classList.remove('d-none');
+  await startCamera();
+});
+closeBtn.addEventListener('click', () => { stopCamera(); showOverlay(false); });
+
+capBtn.addEventListener('click', () => {
+  if (!stream) return;
+  const vw = video.videoWidth || 1280;
+  const vh = video.videoHeight || 720;
+  const maxW = 1600;
+  const scale = Math.min(1, maxW / vw);
+  canvas.width = Math.round(vw * scale);
+  canvas.height = Math.round(vh * scale);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  canvas.toBlob(b => {
+    capturedBlob = b;
+    video.classList.add('d-none');
+    canvas.classList.remove('d-none');
+    capBtn.classList.add('d-none');
+    useBtn.classList.remove('d-none');
+    retakeBtn.classList.remove('d-none');
+  }, 'image/jpeg', 0.9);
+});
+retakeBtn.addEventListener('click', () => {
+  capturedBlob = null;
+  canvas.classList.add('d-none');
+  video.classList.remove('d-none');
+  capBtn.classList.remove('d-none');
+  useBtn.classList.add('d-none');
+  retakeBtn.classList.add('d-none');
+});
+
+// Send to /upload_api then redirect to result
+useBtn.addEventListener('click', async () => {
+  if (!capturedBlob) return;
+  const fd = new FormData();
+  fd.append('photo', new File([capturedBlob], 'camera.jpg', { type: 'image/jpeg' }));
+  const form = document.getElementById('upload-form');
+  fd.append('report_type', form.report_type.value);
+  fd.append('message', form.message.value || '');
+  fd.append('lat', document.getElementById('lat').value || '');
+  fd.append('lon', document.getElementById('lon').value || '');
+  try{
+    const res = await fetch('/upload_api', { method: 'POST', body: fd });
+    const j = await res.json();
+    if (!res.ok || !j.ok) throw new Error(j.error || 'Upload failed');
+    stopCamera(); showOverlay(false);
+    window.location = j.redirect;
+  }catch(e){
+    camErr.textContent = e.message;
+    camErr.classList.remove('d-none');
+  }
+});
+</script>
+{% endblock %}

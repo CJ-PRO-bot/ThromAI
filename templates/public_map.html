@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Community Hotspots{% endblock %}
+{% block content %}
+<h2 class="mb-3">Community Hotspots (privacy-safe)</h2>
+
+<div class="d-flex gap-2 mb-2 align-items-center">
+  <div class="btn-group">
+    <button class="btn btn-sm btn-outline-secondary" onclick="setDays(7)">7d</button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="setDays(30)">30d</button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="setDays(90)">90d</button>
+  </div>
+
+  <select id="category" class="form-select form-select-sm" style="width:auto" onchange="reload()">
+    <option value="all">All categories</option>
+    <option value="illegal_dumping">Illegal dumping</option>
+    <option value="volunteer_works">Volunteer works</option>
+  </select>
+
+  <div class="form-check ms-2">
+    <input class="form-check-input" type="checkbox" id="toggleColor" checked>
+    <label class="form-check-label" for="toggleColor">Color overlay</label>
+  </div>
+  <div class="d-flex align-items-center ms-2">
+    <label class="me-2 small text-muted">Opacity</label>
+    <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.7" style="width:140px">
+  </div>
+
+  <div class="ms-auto text-muted small">
+    Locations are rounded & jittered for privacy; only approved reports shown and last 24h hidden.
+  </div>
+</div>
+
+<div id="map" style="height:540px" class="rounded shadow"></div>
+
+<!-- Small modal for details -->
+<div class="modal fade" id="pubTileModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">Area details</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="pubTileBody">
+        Loading…
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card small mt-3">
+  <div class="card-body py-2">
+    <b>Legend — Share of accepted reports</b>
+    <div class="mt-1">
+      <span class="badge" style="background:#2ecc71">1–10%</span>
+      <span class="badge" style="background:#1e8449">10–20%</span>
+      <span class="badge" style="background:#3498db">20–40%</span>
+      <span class="badge" style="background:#1f618d">40–75%</span>
+      <span class="badge" style="background:#e74c3c">75–100%</span>
+    </div>
+  </div>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+<script>
+let map, heat, colorLayer;
+let DAYS = 30;
+
+function setDays(d){ DAYS = d; reload(); }
+function cat(){ return document.getElementById('category').value; }
+
+async function reload(){
+  if (!map){
+    map = L.map('map').setView([27.5, 89.6], 8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18}).addTo(map);
+    heat = L.heatLayer([], { radius: 25, blur: 18, minOpacity: 0.25 }).addTo(map);
+    colorLayer = L.layerGroup().addTo(map);
+
+    document.getElementById('toggleColor').addEventListener('change', () => {
+      const on = document.getElementById('toggleColor').checked;
+      if (on) map.addLayer(colorLayer); else map.removeLayer(colorLayer);
+    });
+    document.getElementById('opacity').addEventListener('input', () => {
+      const v = parseFloat(document.getElementById('opacity').value);
+      heat.setOptions({ minOpacity: Math.min(v, 0.9) });
+      colorLayer.eachLayer(l => l.setStyle ? l.setStyle({fillOpacity: v, opacity: v}) : null);
+    });
+  }
+
+  // privacy-safe heat
+  const res = await fetch(`/api/v1/public_hotspots?days=${DAYS}&type=${encodeURIComponent(cat())}`);
+  const j = await res.json();
+  const pts = j.bins.map(b => [b.lat, b.lon, Math.min(1, b.count/5)]);
+  heat.setLatLngs(pts);
+  if (pts.length) map.fitBounds(pts.map(p => [p[0], p[1]]), {padding:[20,20]});
+
+  // color overlay & CLICK-TO-DETAILS
+  colorLayer.clearLayers();
+  const total = j.bins.reduce((s,b) => s + (b.count||0), 0) || 0;
+
+  j.bins.forEach(b => {
+    const cnt = b.count || 0;
+    if (cnt <= 0) return;
+
+    let color, band, extra = '';
+    if (total < 100){
+      if (1 <= cnt && cnt < 50){ band = '1-50'; color = '#2ecc71'; }
+      else { band = '50-100'; color = '#1e8449'; }
+      extra = `<br/><b>Approx. share</b>: ${ total ? ((cnt/total)*100).toFixed(2) + '%' : '—' }`;
+    }else{
+      const pct = (cnt/total)*100;
+      if (pct < 10)       { band='1-10%';   color='#2ecc71'; }
+      else if (pct < 20)  { band='10-20%';  color='#1e8449'; }
+      else if (pct < 40)  { band='20-40%';  color='#3498db'; }
+      else if (pct < 75)  { band='40-75%';  color='#1f618d'; }
+      else                { band='75-100%'; color='#e74c3c'; }
+      extra = `<br/><b>Share</b>: ${pct.toFixed(2)}%`;
+    }
+
+    const cm = L.circleMarker([b.lat, b.lon], {
+      radius: 10, color, fillColor: color, fillOpacity: 0.7, weight: 1.5
+    }).bindPopup(`<b>Accepted</b>: ${cnt}${extra}<br/><b>Band</b>: ${band}`);
+
+    // On click, fetch details for this tile (public endpoint)
+    cm.on('click', async () => {
+      const body = document.getElementById('pubTileBody');
+      body.textContent = 'Loading…';
+      const modal = new bootstrap.Modal(document.getElementById('pubTileModal'));
+      modal.show();
+      try{
+        const url = `/api/v1/public_tile_details?days=${DAYS}&type=${encodeURIComponent(cat())}&lat=${b.lat}&lon=${b.lon}`;
+        const res = await fetch(url);
+        const j2 = await res.json();
+        if(!res.ok || j2.ok === false){
+          body.textContent = j2.error || 'Failed to load.';
+          return;
+        }
+        const byType = Object.entries(j2.by_type || {}).map(([k,v]) => `<li>${k}: <b>${v}</b></li>`).join('');
+        const byDay  = (j2.by_day || []).map(d => `<tr><td>${d.date}</td><td class="text-end">${d.count}</td></tr>`).join('');
+        body.innerHTML = `
+          <div><b>Total reports</b>: ${j2.total}</div>
+          <div class="mt-1"><b>By category</b>:</div>
+          <ul class="mb-2">${byType || '<li>—</li>'}</ul>
+          <div><b>Daily breakdown (last ${j2.since_days}d)</b>:</div>
+          <table class="table table-sm mb-0"><tbody>${byDay || '<tr><td colspan="2">—</td></tr>'}</tbody></table>
+          <div class="text-muted mt-1">Privacy: no user counts; last 24h hidden.</div>
+        `;
+      }catch(e){
+        body.textContent = e.message || 'Failed to load.';
+      }
+    });
+
+    colorLayer.addLayer(cm);
+  });
+}
+reload();
+</script>
+{% endblock %}

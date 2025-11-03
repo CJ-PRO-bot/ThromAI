@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Review Console{% endblock %}
+{% block content %}
+<h2 class="mb-3">Review Console</h2>
+
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+  <a class="btn btn-sm {% if tab=='pending' %}btn-primary{% else %}btn-outline-primary{% endif %}"
+     href="{{ url_for('admin_review', tab='pending', type=category, dzongkhag=dz) }}">
+    Pending ({{ pending_count }})
+  </a>
+  <a class="btn btn-sm {% if tab=='accepted' %}btn-success{% else %}btn-outline-success{% endif %}"
+     href="{{ url_for('admin_review', tab='accepted', type=category, dzongkhag=dz) }}">
+    Accepted ({{ approved_count }})
+  </a>
+  <a class="btn btn-sm {% if tab=='rejected' %}btn-danger{% else %}btn-outline-danger{% endif %}"
+     href="{{ url_for('admin_review', tab='rejected', type=category, dzongkhag=dz) }}">
+    Rejected ({{ rejected_count }})
+  </a>
+  <a class="btn btn-sm {% if tab=='mine_today' %}btn-dark{% else %}btn-outline-dark{% endif %}"
+     href="{{ url_for('admin_review', tab='mine_today', type=category, dzongkhag=dz) }}">
+    Reviewed by me (today)
+  </a>
+
+  <div class="vr mx-2"></div>
+
+  <form class="d-flex align-items-center gap-2" method="get" action="{{ url_for('admin_review') }}">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <select name="type" class="form-select form-select-sm" style="width:auto">
+      <option value="all" {% if category=='all' %}selected{% endif %}>All categories</option>
+      <option value="illegal_dumping" {% if category=='illegal_dumping' %}selected{% endif %}>Illegal dumping</option>
+      <option value="volunteer_works" {% if category=='volunteer_works' %}selected{% endif %}>Volunteer works</option>
+    </select>
+    <select name="dzongkhag" class="form-select form-select-sm" style="width:auto">
+      {% for n in ['all','thimphu','paro','punakha','wangdue','chukha'] %}
+        <option value="{{ n }}" {% if dz==n %}selected{% endif %}>{{ 'All Dzongkhags' if n=='all' else n.title() }}</option>
+      {% endfor %}
+    </select>
+    <select name="per_page" class="form-select form-select-sm" style="width:auto">
+      {% for n in [10,25,50] %}
+        <option value="{{n}}" {% if per_page==n %}selected{% endif %}>{{n}} / page</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-sm btn-outline-secondary">Apply</button>
+  </form>
+
+  {% if tab=='pending' %}
+  <div class="ms-auto small text-muted">Tip: A=approve, R=reject, N=next</div>
+  {% endif %}
+</div>
+
+{% if rows|length == 0 %}
+  <div class="alert alert-info">No items found.</div>
+{% else %}
+  <div class="list-group">
+    {% for s in rows %}
+      <div class="list-group-item" id="s{{ s.id }}">
+        <div class="d-flex gap-3">
+          <img src="/{{ s.image_path }}" style="width:120px;height:90px;object-fit:cover" class="rounded border">
+          <div class="flex-grow-1">
+            <div class="d-flex justify-content-between">
+              <div>
+                <b>#{{ s.id }}</b>
+                <span class="text-muted">· {{ s.created_at }}</span>
+                {% if s.duplicate_of %}<span class="badge bg-warning text-dark">Duplicate of #{{ s.duplicate_of }}</span>{% endif %}
+                {% if s.status == 'AUTO_OK' %}<span class="badge bg-success">AI OK</span>{% else %}<span class="badge bg-secondary">AI Recheck</span>{% endif %}
+                {% if s.human_state != 'unreviewed' %}
+                  <span class="badge bg-dark">{{ s.human_state }}</span>
+                {% endif %}
+              </div>
+              <div class="text-end">
+                <div class="small text-muted">{{ s.report_type.replace('_',' ')|title }}</div>
+                {% if s.lat and s.lon %}
+                  <div class="small text-muted">{{ '%.5f'|format(s.lat) }}, {{ '%.5f'|format(s.lon) }}</div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="mt-2 small">
+              <span class="me-3">Relevance: {{ '%.2f'|format(s.relevance_score or 0) }}</span>
+              <span class="me-3">Auth: {{ '%.2f'|format(s.auth_score or 0) }}</span>
+              <span>Action: {{ '%.2f'|format(s.action_score or 0) }}</span>
+            </div>
+
+            <div class="mt-2 d-flex gap-2">
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('result', sid=s.id) }}">Open</a>
+
+              {% if tab in ['pending','mine_today'] %}
+                <form method="post" action="{{ url_for('admin_review_decide', sid=s.id, decision='approve') }}" class="d-inline">
+                  <input type="hidden" name="tab" value="{{ tab }}">
+                  <input type="hidden" name="type" value="{{ category }}">
+                  <input type="hidden" name="dzongkhag" value="{{ dz }}">
+                  <input type="hidden" name="page" value="{{ page }}">
+                  <input type="hidden" name="next_id" value="{{ next_id or '' }}">
+                  <button class="btn btn-sm btn-success">Approve (✓)</button>
+                </form>
+                <form method="post" action="{{ url_for('admin_review_decide', sid=s.id, decision='reject') }}" class="d-inline">
+                  <input type="hidden" name="tab" value="{{ tab }}">
+                  <input type="hidden" name="type" value="{{ category }}">
+                  <input type="hidden" name="dzongkhag" value="{{ dz }}">
+                  <input type="hidden" name="page" value="{{ page }}">
+                  <input type="hidden" name="next_id" value="{{ next_id or '' }}">
+                  <button class="btn btn-sm btn-outline-danger">Reject (×)</button>
+                </form>
+              {% endif %}
+
+              {% if tab != 'pending' %}
+                <span class="small text-muted">Reviewed by: {{ s.reviewed_by or '—' }} at {{ s.reviewed_at or '—' }}</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <nav class="mt-3">
+    <ul class="pagination pagination-sm">
+      {% set pages = (total // per_page) + (1 if (total % per_page)>0 else 0) %}
+      {% for p in range(1, pages+1) %}
+        <li class="page-item {% if p==page %}active{% endif %}">
+          <a class="page-link" href="{{ url_for('admin_review', tab=tab, type=category, dzongkhag=dz, page=p, per_page=per_page) }}">{{ p }}</a>
+        </li>
+      {% endfor %}
+    </ul>
+  </nav>
+{% endif %}
+
+{% if tab=='pending' %}
+<script>
+document.addEventListener('keydown', function(e){
+  const anchor = window.location.hash || '';
+  const current = anchor.startsWith('#s') ? document.querySelector(anchor) : document.querySelector('.list-group-item');
+  if(!current) return;
+  const approveForm = current.querySelector("form[action*='/approve']");
+  const rejectForm  = current.querySelector("form[action*='/reject']");
+  const nextAnchor  = "{{ next_id and ('#s' ~ next_id) or '' }}";
+
+  if (e.key.toLowerCase() === 'a' && approveForm) { approveForm.submit(); }
+  if (e.key.toLowerCase() === 'r' && rejectForm)  { rejectForm.submit(); }
+  if (e.key.toLowerCase() === 'n' && nextAnchor)  { location.hash = nextAnchor; }
+});
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,176 @@
+<!-- templates/supw_admin.html -->
+{% extends "base.html" %}
+{% block title %}SUPW Coordination (Admin){% endblock %}
+{% block content %}
+<h2 class="mb-3">SUPW Coordination (Admin)</h2>
+
+<div class="row g-4">
+  <!-- Create / Edit Places -->
+  <div class="col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Places</h5>
+
+        <form class="row g-2 mb-3" method="post" action="{{ url_for('bp_supw.supw_place_create') }}">
+          <div class="col-6">
+            <input class="form-control form-control-sm" name="name" placeholder="New place name (e.g., RK A)" required>
+          </div>
+          <div class="col-6">
+            <input class="form-control form-control-sm" name="description" placeholder="description (optional)">
+          </div>
+          <div class="col-12">
+            <button class="btn btn-primary btn-sm">Add Place</button>
+          </div>
+        </form>
+
+        <div class="list-group small">
+          {% for p in places %}
+            <div class="list-group-item">
+              <form class="row g-2 align-items-center" method="post" action="{{ url_for('bp_supw.supw_place_update', pid=p.id) }}">
+                <div class="col-5">
+                  <input class="form-control form-control-sm" name="name" value="{{ p.name }}">
+                </div>
+                <div class="col-5">
+                  <input class="form-control form-control-sm" name="description" value="{{ p.description or '' }}" placeholder="description">
+                </div>
+                <div class="col-2 text-end">
+                  <button class="btn btn-outline-secondary btn-sm">Save</button>
+                </div>
+              </form>
+              <form method="post" action="{{ url_for('bp_supw.supw_place_delete', pid=p.id) }}" class="mt-1">
+                <button class="btn btn-outline-danger btn-sm">Delete</button>
+              </form>
+
+              {% set members = by_place[p.id]['users'] if p.id in by_place else [] %}
+              <div class="mt-2">
+                <b>Assigned:</b>
+                {% if members %}
+                  {% for u in members %}
+                    <span class="badge text-bg-light border me-1">
+                      {{ u.username }}
+                      <form class="d-inline" method="post" action="{{ url_for('bp_supw.supw_unassign', aid=u.supw_assignments.filter_by(place_id=p.id).first().id) }}">
+                        <button class="btn btn-link btn-sm p-0 ms-1">✕</button>
+                      </form>
+                    </span>
+                  {% endfor %}
+                {% else %}
+                  <span class="text-muted">none</span>
+                {% endif %}
+              </div>
+            </div>
+          {% else %}
+            <div class="list-group-item text-muted">No places yet.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Assign Panel -->
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Assign Coordinators</h5>
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label small">Users</label>
+            <select id="users" class="form-select" size="10" multiple>
+              {% for u in users %}
+                <option value="{{ u.id }}">{{ u.username }}{% if u.role == 'admin' %} (admin){% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Hold Ctrl/Cmd to multi-select.</div>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label small">Places</label>
+            <select id="places" class="form-select" size="10" multiple>
+              {% for p in places %}
+                <option value="{{ p.id }}">{{ p.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">For random distribution, select 2+ places.</div>
+          </div>
+        </div>
+
+        <hr>
+
+        <div class="d-flex flex-wrap gap-2">
+          <!-- Manual assign (users -> one place) -->
+          <form id="manualForm" method="post" action="{{ url_for('bp_supw.supw_assign_manual') }}" onsubmit="return fillManual()">
+            <input type="hidden" name="place_id" id="manual_place_id">
+            <div class="input-group input-group-sm">
+              <label class="input-group-text">Assign selected users to</label>
+              <select id="manual_place_select" class="form-select form-select-sm">
+                {% for p in places %}
+                  <option value="{{ p.id }}">{{ p.name }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-primary btn-sm">Assign</button>
+            </div>
+            <!-- injected user_ids[] -->
+          </form>
+
+          <!-- Random distribute -->
+          <form id="randomForm" method="post" action="{{ url_for('bp_supw.supw_assign_random') }}" onsubmit="return fillRandom()">
+            <input type="hidden" name="all_users" id="rf_all" value="0">
+            <!-- injected user_ids[] and place_ids[] -->
+            <div class="btn-group">
+              <button class="btn btn-outline-secondary btn-sm" type="button" onclick="selectAllUsers()">Select all users</button>
+              <button class="btn btn-outline-primary btn-sm">Randomly distribute</button>
+            </div>
+          </form>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function getSelectedValues(sel) {
+  return Array.from(sel.options).filter(o => o.selected).map(o => o.value);
+}
+
+function injectHidden(form, name, values) {
+  // remove old
+  Array.from(form.querySelectorAll(`input[name="${name}"]`)).forEach(n => n.remove());
+  values.forEach(v => {
+    const i = document.createElement('input');
+    i.type = 'hidden'; i.name = name; i.value = v;
+    form.appendChild(i);
+  });
+}
+
+function fillManual(){
+  const usersSel = document.getElementById('users');
+  const placeSel = document.getElementById('manual_place_select');
+  const form = document.getElementById('manualForm');
+  const u = getSelectedValues(usersSel);
+  if(!u.length){ alert('Select at least one user'); return false; }
+  document.getElementById('manual_place_id').value = placeSel.value;
+  injectHidden(form, 'user_ids', u);
+  return true;
+}
+
+function fillRandom(){
+  const usersSel = document.getElementById('users');
+  const placesSel = document.getElementById('places');
+  const form = document.getElementById('randomForm');
+
+  const u = getSelectedValues(usersSel);
+  const p = getSelectedValues(placesSel);
+  if(!p.length){ alert('Select at least one place'); return false; }
+
+  injectHidden(form, 'user_ids', u);
+  injectHidden(form, 'place_ids', p);
+  return true;
+}
+
+function selectAllUsers(){
+  const usersSel = document.getElementById('users');
+  for(const o of usersSel.options){ o.selected = true; }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}Hotspots & Heatmap (Admin){% endblock %}
+{% block content %}
+<h2 class="mb-3">Admin Map — Heat, Color Buckets & Hotspot Pins</h2>
+
+<div id="heatmap-errors" class="alert alert-warning d-none"></div>
+
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <div class="btn-group">
+    <button class="btn btn-sm btn-outline-secondary" onclick="setDays(7)">7d</button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="setDays(14)">14d</button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="setDays(30)">30d</button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="setDays(90)">90d</button>
+  </div>
+
+  <select id="category" class="form-select form-select-sm" style="width:auto" onchange="reloadAll()">
+    <option value="all">All categories</option>
+    <option value="illegal_dumping">Illegal dumping</option>
+    <option value="volunteer_works">Volunteer works</option>
+  </select>
+
+  <select id="dzongkhag" class="form-select form-select-sm" style="width:auto" onchange="reloadAll()">
+    <option>Loading…</option>
+  </select>
+
+  <div class="form-check ms-3">
+    <input class="form-check-input" type="checkbox" id="toggleHeat" checked>
+    <label class="form-check-label" for="toggleHeat">Heat</label>
+  </div>
+  <div class="form-check">
+    <input class="form-check-input" type="checkbox" id="toggleBuckets" checked>
+    <label class="form-check-label" for="toggleBuckets">Color buckets</label>
+  </div>
+  <div class="form-check">
+    <input class="form-check-input" type="checkbox" id="toggleHotspots" checked>
+    <label class="form-check-label" for="toggleHotspots">Hotspot pins</label>
+  </div>
+
+  <div class="d-flex align-items-center ms-2">
+    <label class="me-2 small text-muted">Opacity</label>
+    <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.7" style="width:160px">
+  </div>
+
+  <a id="csvBtn" class="btn btn-sm btn-success ms-auto disabled" href="#" tabindex="-1" aria-disabled="true">
+    ⬇️ Download CSV
+  </a>
+</div>
+
+<div id="map" class="rounded shadow bg-white border" style="height:560px"></div>
+
+<div class="card small mt-3">
+  <div class="card-body py-2" id="legend">
+    <b>Legend — <span id="legendTitle">Counts (total &lt; 100)</span></b>
+    <div class="mt-1" id="legendContent">
+      <span class="badge" style="background:#2ecc71">1–50</span>
+      <span class="badge" style="background:#1e8449">50–100</span>
+    </div>
+    <div class="text-muted mt-1">Tip: toggle “Color buckets” off to see the base map clearly.</div>
+  </div>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+<script>
+let map, heatLayer, bucketLayer, hotspotLayer;
+let DAYS = 14;
+
+const $err = document.getElementById('heatmap-errors');
+const $daysLabel = document.getElementById('daysLabel');
+
+function showError(msg){
+  $err.textContent = msg;
+  $err.classList.remove('d-none');
+  console.error('[admin-map]', msg);
+}
+
+function setDays(d){ DAYS = d; if ($daysLabel) $daysLabel.textContent = d; reloadAll(); }
+
+async function loadDzongkhags(){
+  try{
+    const res = await fetch(`/api/v1/dzongkhags`);
+    if(!res.ok) throw new Error('dzongkhags failed');
+    const j = await res.json();
+    const sel = document.getElementById('dzongkhag');
+    sel.innerHTML = '';
+    j.dzongkhags.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = (name === 'all') ? 'All Dzongkhags' : name[0].toUpperCase()+name.slice(1);
+      sel.appendChild(opt);
+    });
+  }catch(e){
+    showError('Could not load dzongkhag list.');
+  }
+}
+
+function buildURL(base){
+  const cat = document.getElementById('category').value;
+  const dz  = document.getElementById('dzongkhag').value;
+  return `${base}?days=${DAYS}&type=${encodeURIComponent(cat)}&dzongkhag=${encodeURIComponent(dz)}`;
+}
+
+async function reloadAll(){
+  const heatOn = document.getElementById('toggleHeat').checked;
+  const bucketsOn = document.getElementById('toggleBuckets').checked;
+  const hotspotsOn = document.getElementById('toggleHotspots').checked;
+
+  if (!map){
+    map = L.map('map').setView([27.5, 89.6], 8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18}).addTo(map);
+    heatLayer = L.heatLayer([], { radius: 22, blur: 18, maxZoom: 19, minOpacity: 0.25 });
+    bucketLayer = L.layerGroup();
+    hotspotLayer = L.geoJSON(null, {
+      onEachFeature: (f, layer) => {
+        const p = f.properties;
+        layer.bindPopup(
+          `<b>${p.label}</b><br/>Reports(7d): ${p.count_7d} from ${p.users_7d} users<br/>Top: ${p.top_category}`
+        );
+      },
+      pointToLayer: (f, latlng) => L.circleMarker(latlng, {radius: 10, weight: 2, color: '#c0392b', fillColor: '#e74c3c', fillOpacity: 0.85})
+    });
+
+    L.control.layers(null,
+      {"Heat": heatLayer, "Buckets (colors)": bucketLayer, "Hotspot pins": hotspotLayer},
+      {collapsed: false}
+    ).addTo(map);
+
+    document.getElementById('opacity').addEventListener('input', () => {
+      const v = parseFloat(document.getElementById('opacity').value);
+      heatLayer.setOptions({ minOpacity: Math.min(v, 0.9) });
+      bucketLayer.eachLayer(l => l.setStyle ? l.setStyle({fillOpacity: v, opacity: v}) : null);
+      hotspotLayer.eachLayer(l => l.setStyle ? l.setStyle({fillOpacity: v, opacity: v}) : null);
+    });
+
+    document.getElementById('toggleHeat').addEventListener('change', () => {
+      if (document.getElementById('toggleHeat').checked) map.addLayer(heatLayer); else map.removeLayer(heatLayer);
+    });
+    document.getElementById('toggleBuckets').addEventListener('change', () => {
+      if (document.getElementById('toggleBuckets').checked) map.addLayer(bucketLayer); else map.removeLayer(bucketLayer);
+    });
+    document.getElementById('toggleHotspots').addEventListener('change', () => {
+      if (document.getElementById('toggleHotspots').checked) map.addLayer(hotspotLayer); else map.removeLayer(hotspotLayer);
+    });
+  }
+
+  try{
+    // Heat
+    const bounds = map.getBounds();
+    const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(',');
+    const heatRes = await fetch(buildURL(`/api/v1/heat_points`) + `&bbox=${bbox}`);
+    const heatJson = await heatRes.json();
+    if (heatRes.ok){
+      const pts = heatJson.points; // [lat, lon, w]
+      heatLayer.setLatLngs(pts);
+      if (pts.length) map.fitBounds(pts.map(p => [p[0], p[1]]), {padding:[20,20]});
+    }
+
+    // Buckets
+    bucketLayer.clearLayers();
+    const bRes = await fetch(buildURL(`/api/v1/tiles_buckets`));
+    const bJson = await bRes.json();
+    if (bRes.ok){
+      const titleEl = document.getElementById('legendTitle');
+      const contentEl = document.getElementById('legendContent');
+      if (bJson.mode === 'counts'){
+        titleEl.textContent = 'Counts (total < 100)';
+        contentEl.innerHTML = `
+          <span class="badge" style="background:#2ecc71">1–50</span>
+          <span class="badge" style="background:#1e8449">50–100</span>
+        `;
+      } else {
+        titleEl.textContent = 'Percent of total (total ≥ 100)';
+        contentEl.innerHTML = `
+          <span class="badge" style="background:#2ecc71">1–10%</span>
+          <span class="badge" style="background:#1e8449">10–20%</span>
+          <span class="badge" style="background:#3498db">20–40%</span>
+          <span class="badge" style="background:#1f618d">40–75%</span>
+          <span class="badge" style="background:#e74c3c">75–100%</span>
+        `;
+      }
+
+      // draw circles WITH click-to-details
+      bJson.tiles.forEach(t => {
+        const cm = L.circleMarker([t.lat, t.lon], {
+          radius: 10, color: t.color, fillColor: t.color, fillOpacity: 0.7, weight: 1.5
+        });
+
+        // initial popup (quick info)
+        cm.bindPopup(
+          (bJson.mode === 'counts')
+            ? `<b>Accepted</b>: ${t.count}<br/><b>Approx. share</b>: ${t.percent}%<br/><b>Band</b>: ${t.band}<div class="mt-1 text-muted">Loading details…</div>`
+            : `<b>Accepted</b>: ${t.count}<br/><b>Share</b>: ${t.percent}%<br/><b>Band</b>: ${t.band}<div class="mt-1 text-muted">Loading details…</div>`
+        );
+
+        cm.on('popupopen', async (e) => {
+          try{
+            const url = buildURL(`/api/v1/tile_details`) + `&lat=${t.lat}&lon=${t.lon}`;
+            const res = await fetch(url);
+            const j = await res.json();
+            if(!res.ok || j.ok === false){
+              cm.setPopupContent(`<b>Accepted</b>: ${t.count}<br/>Details failed to load.`);
+              return;
+            }
+            const byType = Object.entries(j.by_type || {}).map(([k,v]) => `<li>${k}: <b>${v}</b></li>`).join('');
+            const byDay  = (j.by_day || []).map(d => `<tr><td>${d.date}</td><td class="text-end">${d.count}</td></tr>`).join('');
+            cm.setPopupContent(`
+              <b>Tile</b>: ${j.tile_lat.toFixed(3)}, ${j.tile_lon.toFixed(3)}<br/>
+              <b>Total reports</b>: ${j.total}<br/>
+              <b>Unique reporters</b>: ${j.unique_reporters}<br/>
+              <div class="mt-1"><b>By category</b>:</div>
+              <ul class="mb-2">${byType || '<li>—</li>'}</ul>
+              <div><b>Daily breakdown (last ${j.since_days}d)</b>:</div>
+              <table class="table table-sm mb-0"><tbody>${byDay || '<tr><td colspan="2">—</td></tr>'}</tbody></table>
+            `);
+          }catch(err){
+            cm.setPopupContent(`<b>Accepted</b>: ${t.count}<br/>Details failed to load.`);
+          }
+        });
+
+        bucketLayer.addLayer(cm);
+      });
+    }
+
+    // Hotspot pins
+    hotspotLayer.clearLayers();
+    const hRes = await fetch(buildURL(`/api/v1/hotspot_pins`));
+    if (hRes.ok) hotspotLayer.addData(await hRes.json());
+
+    // CSV
+    const csvUrl = buildURL(`/api/v1/export_csv`);
+    const btn = document.getElementById('csvBtn');
+    btn.classList.remove('disabled'); btn.removeAttribute('aria-disabled'); btn.setAttribute('href', csvUrl);
+
+    // ensure layer visibility matches toggles
+    if (document.getElementById('toggleHeat').checked && !map.hasLayer(heatLayer)) map.addLayer(heatLayer);
+    if (document.getElementById('toggleBuckets').checked && !map.hasLayer(bucketLayer)) map.addLayer(bucketLayer);
+    if (document.getElementById('toggleHotspots').checked && !map.hasLayer(hotspotLayer)) map.addLayer(hotspotLayer);
+
+  }catch(e){
+    showError(e.message || 'Failed to load map data.');
+  }
+}
+
+(async () => {
+  await loadDzongkhags();
+  await reloadAll();
+})();
+</script>
+{% endblock %}

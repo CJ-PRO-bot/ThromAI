@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard{% endblock %}
+{% block content %}
+<h1 class="mb-3">🏆 Leaderboard</h1>
+
+{% if my_rank %}
+  <p class="text-muted">Your rank: <b>#{{ my_rank }}</b> — {{ current_user.points or 0 }} pts</p>
+{% endif %}
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th style="width:80px;">Rank</th>
+            <th>User</th>
+            <th class="text-end">Points</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+            <tr {% if current_user.is_authenticated and u.id == current_user.id %}class="table-warning"{% endif %}>
+              <td>#{{ loop.index }}</td>
+              <td>{{ u.username }}</td>
+              <td class="text-end">{{ u.points or 0 }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="3" class="text-muted">No users yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-muted mb-0">Points are awarded when an admin approves a valid report.</p>
+  </div>
+</div>
+{% endblock %}

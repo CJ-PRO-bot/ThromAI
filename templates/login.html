@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <div class="card shadow">
+      <div class="card-body">
+        <h2 class="mb-3">Log in</h2>
+        <form method="post">
+          <div class="mb-3">
+            <input class="form-control" name="identifier" placeholder="Username or Email" required>
+          </div>
+          <div class="mb-3">
+            <input class="form-control" name="password" type="password" placeholder="Password" required>
+          </div>
+          <button class="btn btn-primary">Login</button>
+          <a class="btn btn-link" href="{{ url_for('register') }}">Register</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
