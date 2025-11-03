@@ -12,3 +12,9 @@ uploads/
 *.sqlite3
 *.db
 site.db
+
+# build artifacts
+*.log
+
+# models if they are big (use LFS otherwise)
+ai/**/checkpoints/

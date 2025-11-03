@@ -29,7 +29,9 @@
       <option value="all" {% if category=='all' %}selected{% endif %}>All categories</option>
       <option value="illegal_dumping" {% if category=='illegal_dumping' %}selected{% endif %}>Illegal dumping</option>
       <option value="volunteer_works" {% if category=='volunteer_works' %}selected{% endif %}>Volunteer works</option>
+      <option value="dirty_area" {% if category=='dirty_area' %}selected{% endif %}>Dirty area</option>
     </select>
+
     <select name="dzongkhag" class="form-select form-select-sm" style="width:auto">
       {% for n in ['all','thimphu','paro','punakha','wangdue','chukha'] %}
         <option value="{{ n }}" {% if dz==n %}selected{% endif %}>{{ 'All Dzongkhags' if n=='all' else n.title() }}</option>

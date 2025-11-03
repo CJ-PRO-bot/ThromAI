@@ -121,15 +121,19 @@ def admin_required(fn):
         return fn(*args, **kwargs)
     return wrapper
 
-def _award_points_if_needed(sub: Submission):
-    if sub.status == "AUTO_OK" and (sub.points_awarded or 0) == 0:
+def _award_points_once(sub: Submission, approver_id: int | None):
+    """
+    Idempotently award points to the reporter of this submission and
+    stamp approval metadata. Used both on AI auto-OK and human approval.
+    """
+    if (sub.points_awarded or 0) == 0:
         sub.points_awarded = POINTS_PER_APPROVAL
         if sub.user:
             sub.user.points = (sub.user.points or 0) + POINTS_PER_APPROVAL
-        if not sub.approved_at:
-            sub.approved_at = datetime.utcnow()
-        if not sub.approved_by and current_user.is_authenticated:
-            sub.approved_by = current_user.id
+    if not sub.approved_at:
+        sub.approved_at = datetime.utcnow()
+    if not sub.approved_by and approver_id:
+        sub.approved_by = approver_id
 
 def _save_and_score(file_storage, report_type, msg, lat, lon):
     fname = unique_filename(getattr(file_storage, "filename", "camera.jpg"))
@@ -185,14 +189,15 @@ def _save_and_score(file_storage, report_type, msg, lat, lon):
         auth_score=scores.get("auth_score"),
         relevance_score=scores.get("relevance_score"),
         model_version=scores.get("model_version"),
-
-        # NEW: make sure fresh items default to unreviewed
         human_state="unreviewed",
     )
     db.session.add(sub)
     db.session.flush()
+
+    # Auto-award if AI says OK immediately
     if sub.status == "AUTO_OK":
-        _award_points_if_needed(sub)
+        _award_points_once(sub, approver_id=current_user.id if current_user.is_authenticated else None)
+
     db.session.commit()
 
     if msg:
@@ -318,13 +323,12 @@ def post_message(sid):
     return redirect(url_for("result", sid=sid))
 
 # -------------------------
-# Admin (legacy)
+# Admin (legacy dashboard)
 # -------------------------
 @app.route("/admin")
 @login_required
 @admin_required
 def admin_home():
-    # Keep old dashboard but now show counts and link to the new Review Console
     pending_count = Submission.query.filter_by(human_state="unreviewed").count()
     approved_count = Submission.query.filter_by(human_state="approved").count()
     rejected_count = Submission.query.filter_by(human_state="rejected").count()
@@ -343,7 +347,6 @@ def admin_home():
 @login_required
 @admin_required
 def admin_mark(sid, new_status):
-    # unchanged: this is still the AI-status override (optional to keep)
     if new_status not in ("AUTO_OK", "RECHECK"):
         flash("Invalid status")
         return redirect(url_for("admin_home"))
@@ -351,7 +354,7 @@ def admin_mark(sid, new_status):
     prev = sub.status
     sub.status = new_status
     if new_status == "AUTO_OK" and prev != "AUTO_OK":
-        _award_points_if_needed(sub)
+        _award_points_once(sub, approver_id=current_user.id)
     db.session.commit()
     return redirect(url_for("admin_home"))
 
@@ -361,9 +364,10 @@ def admin_mark(sid, new_status):
 def admin_set_category(sid):
     sub = Submission.query.get_or_404(sid)
     new_type = request.form.get("report_type", "").strip()
-    if new_type not in ("illegal_dumping", "volunteer_works"):
+    if new_type not in ("illegal_dumping", "volunteer_works", "dirty_area"):
         flash("Invalid category")
         return redirect(url_for("result", sid=sid))
+
     sub.report_type = new_type
     db.session.commit()
     flash("Category updated.")
@@ -383,8 +387,6 @@ def _queue_base_query(tab: str):
     elif tab == "mine_today":
         start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         q = q.filter(Submission.reviewed_by == current_user.id, Submission.reviewed_at >= start)
-    else:
-        q = q  # all
     return q
 
 @app.route("/admin/review")
@@ -398,11 +400,9 @@ def admin_review():
     dz = request.args.get("dzongkhag", "all")
 
     q = _queue_base_query(tab)
-
-    if category in ("illegal_dumping", "volunteer_works"):
+    if category in ("illegal_dumping", "volunteer_works", "dirty_area"):
         q = q.filter(Submission.report_type == category)
 
-    # simple dz bounding box like your hotspots (optional; safe-guard if lat/lon present)
     if dz and dz != "all":
         DZ_BBOX = {
             "thimphu": (27.30, 27.60, 89.45, 89.80),
@@ -420,19 +420,15 @@ def admin_review():
     total = q.count()
     rows = q.offset((page-1)*per_page).limit(per_page).all()
 
-    # counts for tabs
     pending_count = Submission.query.filter_by(human_state="unreviewed").count()
     approved_count = Submission.query.filter_by(human_state="approved").count()
     rejected_count = Submission.query.filter_by(human_state="rejected").count()
 
-    # find the "next id" for auto-advance (next row in this page, else first on next page)
     next_id = None
     if rows:
-        # default to the second item; if you click on first, next is the second, etc.
         if len(rows) >= 2:
             next_id = rows[1].id
         else:
-            # look ahead into next page
             nxt = q.offset(page*per_page).limit(1).all()
             if nxt:
                 next_id = nxt[0].id
@@ -448,7 +444,6 @@ def admin_review():
 @login_required
 @admin_required
 def admin_review_decide(sid, decision):
-    # decision: approve|reject|flag
     sub = Submission.query.get_or_404(sid)
     if decision not in ("approve", "reject", "flag"):
         flash("Invalid decision")
@@ -459,17 +454,9 @@ def admin_review_decide(sid, decision):
         sub.human_state = "approved"
         sub.reviewed_at = now
         sub.reviewed_by = current_user.id
-        # You may still want to award points only when AI also okayed it; keeping your old rule:
-        if sub.status == "AUTO_OK":
-            # award once
-            if (sub.points_awarded or 0) == 0:
-                sub.points_awarded = int(os.getenv("POINTS_PER_APPROVAL", "10"))
-                if sub.user:
-                    sub.user.points = (sub.user.points or 0) + sub.points_awarded
-                if not sub.approved_at:
-                    sub.approved_at = now
-                if not sub.approved_by:
-                    sub.approved_by = current_user.id
+
+        # ✅ NEW: always award on human approval (once), regardless of AI status
+        _award_points_once(sub, approver_id=current_user.id)
 
     elif decision == "reject":
         sub.human_state = "rejected"
@@ -480,14 +467,12 @@ def admin_review_decide(sid, decision):
         sub.reviewed_at = now
         sub.reviewed_by = current_user.id
 
-    # optional short note
     note = (request.form.get("note") or "").strip()
     if note:
         sub.notes_admin = note[:280]
 
     db.session.commit()
 
-    # AUTO-ADVANCE: return to same filtered view, jump to "next_id" if provided
     tab = request.form.get("tab", "pending")
     category = request.form.get("type", "all")
     dz = request.form.get("dzongkhag", "all")
@@ -514,14 +499,11 @@ def chat_room():
         return redirect(url_for("chat_room"))
 
     from models import ChatMessage
-    # ...
     msgs = ChatMessage.query.order_by(ChatMessage.created_at.desc()).limit(100).all()
     msgs = list(reversed(msgs))
     last_id = msgs[-1].id if msgs else 0
     return render_template("chat.html", msgs=msgs, last_id=last_id)
 
-
-# lightweight polling to fetch recent messages as HTML fragment
 @app.route("/chat/stream")
 @login_required
 def chat_stream():

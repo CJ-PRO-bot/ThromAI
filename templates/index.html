@@ -7,18 +7,24 @@
   <div class="row g-3">
     <div class="col-md-6">
       <label class="form-label">Photo</label>
-      <!-- keeps normal file upload; capture hints phones to open camera -->
-      <input class="form-control" type="file" name="photo" accept="image/*" capture="environment" required>
+      <input id="photoInput" class="form-control" type="file" name="photo"
+             accept="image/*" capture="environment">
       <div class="form-text">Max 10MB. JPG/PNG/WEBP/BMP supported.</div>
 
+      <!-- camera button -->
       <button type="button" id="openCameraBtn" class="btn btn-outline-primary btn-sm mt-2">
         📷 Use camera
       </button>
+
+      <!-- visual feedback when a camera photo is attached -->
+      <div id="fileStatus" class="small text-success mt-2 d-none">Camera photo attached.</div>
+      <img id="thumb" class="mt-2 d-none border rounded" style="max-width: 160px; max-height: 120px;" alt="preview">
     </div>
 
     <div class="col-md-6">
       <label class="form-label">Category</label>
       <select class="form-select" name="report_type">
+        <option value="dirty_area">Dirty area</option>
         <option value="illegal_dumping">Illegal dumping</option>
         <option value="volunteer_works">Volunteer works</option>
       </select>
@@ -91,15 +97,18 @@
 })();
 
 // ===== Simple camera overlay (webcam/phone) =====
-const overlay   = document.getElementById('camOverlay');
-const video     = document.getElementById('video');
-const canvas    = document.getElementById('canvas');
-const openBtn   = document.getElementById('openCameraBtn');
-const closeBtn  = document.getElementById('closeCameraBtn');
-const capBtn    = document.getElementById('captureBtn');
-const useBtn    = document.getElementById('usePhotoBtn');
-const retakeBtn = document.getElementById('retakeBtn');
-const camErr    = document.getElementById('camError');
+const overlay    = document.getElementById('camOverlay');
+const video      = document.getElementById('video');
+const canvas     = document.getElementById('canvas');
+const openBtn    = document.getElementById('openCameraBtn');
+const closeBtn   = document.getElementById('closeCameraBtn');
+const capBtn     = document.getElementById('captureBtn');
+const useBtn     = document.getElementById('usePhotoBtn');
+const retakeBtn  = document.getElementById('retakeBtn');
+const camErr     = document.getElementById('camError');
+const fileInput  = document.getElementById('photoInput');
+const fileStatus = document.getElementById('fileStatus');
+const thumb      = document.getElementById('thumb');
 
 let stream = null;
 let capturedBlob = null;
@@ -150,6 +159,8 @@ capBtn.addEventListener('click', () => {
     retakeBtn.classList.remove('d-none');
   }, 'image/jpeg', 0.9);
 });
+
+// ONE retake handler (merge of the two you had)
 retakeBtn.addEventListener('click', () => {
   capturedBlob = null;
   canvas.classList.add('d-none');
@@ -157,27 +168,65 @@ retakeBtn.addEventListener('click', () => {
   capBtn.classList.remove('d-none');
   useBtn.classList.add('d-none');
   retakeBtn.classList.add('d-none');
+
+  // clear previous attach/preview
+  if (window.DataTransfer) fileInput.value = '';
+  fileStatus.classList.add('d-none');
+  thumb.classList.add('d-none');
+  try { URL.revokeObjectURL(thumb.src); } catch {}
 });
 
 // Send to /upload_api then redirect to result
+let usingCaptured = false;
+
+// When user likes the shot, adopt it and close overlay (don’t submit here).
 useBtn.addEventListener('click', async () => {
   if (!capturedBlob) return;
-  const fd = new FormData();
-  fd.append('photo', new File([capturedBlob], 'camera.jpg', { type: 'image/jpeg' }));
-  const form = document.getElementById('upload-form');
-  fd.append('report_type', form.report_type.value);
-  fd.append('message', form.message.value || '');
-  fd.append('lat', document.getElementById('lat').value || '');
-  fd.append('lon', document.getElementById('lon').value || '');
-  try{
+
+  const file = new File([capturedBlob], 'camera.jpg', { type: 'image/jpeg' });
+
+  // Prefer inserting into the file input so normal submit shows file chosen
+  if (window.DataTransfer) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    fileInput.files = dt.files;
+
+    // Visual feedback
+    fileStatus.textContent = 'Camera photo attached.';
+    fileStatus.classList.remove('d-none');
+    try { URL.revokeObjectURL(thumb.src); } catch {}
+    thumb.src = URL.createObjectURL(file);
+    thumb.classList.remove('d-none');
+
+    usingCaptured = false; // normal form submit path
+  } else {
+    usingCaptured = true;  // fallback to fetch path
+  }
+
+  stopCamera();
+  showOverlay(false);
+});
+
+// Intercept form submit ONLY if usingCaptured=true (older browsers)
+const form = document.getElementById('upload-form');
+form.addEventListener('submit', async (e) => {
+  if (!usingCaptured) return;
+  e.preventDefault();
+
+  try {
+    const fd = new FormData();
+    fd.append('photo', new File([capturedBlob], 'camera.jpg', { type: 'image/jpeg' }));
+    fd.append('report_type', form.querySelector('[name="report_type"]').value);
+    fd.append('message', form.querySelector('[name="message"]').value || '');
+    fd.append('lat', document.getElementById('lat').value || '');
+    fd.append('lon', document.getElementById('lon').value || '');
+
     const res = await fetch('/upload_api', { method: 'POST', body: fd });
     const j = await res.json();
     if (!res.ok || !j.ok) throw new Error(j.error || 'Upload failed');
-    stopCamera(); showOverlay(false);
     window.location = j.redirect;
-  }catch(e){
-    camErr.textContent = e.message;
-    camErr.classList.remove('d-none');
+  } catch (err) {
+    alert(err.message || 'Failed to submit');
   }
 });
 </script>

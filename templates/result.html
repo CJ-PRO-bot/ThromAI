@@ -91,6 +91,7 @@
         <select name="report_type" class="form-select">
           <option value="illegal_dumping" {% if submission.report_type == 'illegal_dumping' %}selected{% endif %}>Illegal dumping</option>
           <option value="volunteer_works" {% if submission.report_type == 'volunteer_works' %}selected{% endif %}>Volunteer works</option>
+          <option value="dirty_area" {% if submission.report_type == 'dirty_area' %}selected{% endif %}>Dirty area</option>
         </select>
         <button class="btn btn-outline-primary">Save</button>
       </div>
