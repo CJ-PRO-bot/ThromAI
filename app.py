@@ -91,7 +91,7 @@ try:
         db.create_all()
 except Exception as e:
     print("[WARN] db.create_all failed:", e)
-    
+
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
@@ -501,6 +501,37 @@ def admin_review_decide(sid, decision):
 @app.route("/map")
 def public_map():
     return render_template("public_map.html")
+
+@app.route("/chat", methods=["GET", "POST"])
+@login_required
+def chat_room():
+    if request.method == "POST":
+        body = (request.form.get("body") or "").strip()
+        if body:
+            from models import ChatMessage
+            m = ChatMessage(user_id=current_user.id, body=body)
+            db.session.add(m); db.session.commit()
+        return redirect(url_for("chat_room"))
+
+    from models import ChatMessage
+    # ...
+    msgs = ChatMessage.query.order_by(ChatMessage.created_at.desc()).limit(100).all()
+    msgs = list(reversed(msgs))
+    last_id = msgs[-1].id if msgs else 0
+    return render_template("chat.html", msgs=msgs, last_id=last_id)
+
+
+# lightweight polling to fetch recent messages as HTML fragment
+@app.route("/chat/stream")
+@login_required
+def chat_stream():
+    from models import ChatMessage
+    since_id = int(request.args.get("since", "0"))
+    q = ChatMessage.query
+    if since_id:
+        q = q.filter(ChatMessage.id > since_id)
+    new_msgs = q.order_by(ChatMessage.id.asc()).limit(100).all()
+    return render_template("_chat_items.html", msgs=new_msgs)
 
 @app.route("/admin/heatmap")
 @login_required

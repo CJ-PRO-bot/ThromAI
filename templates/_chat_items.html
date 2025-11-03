@@ -1,0 +1,7 @@
+{% for m in msgs %}
+<li class="list-group-item" data-id="{{ m.id }}">
+  <b>{{ m.user.username }}</b>
+  <small class="text-muted">· {{ m.created_at.strftime("%Y-%m-%d %H:%M") }} UTC</small>
+  <div>{{ m.body }}</div>
+</li>
+{% endfor %}

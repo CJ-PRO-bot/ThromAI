@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <h3>All-users Chat</h3>
+
+  <div id="chat-box" class="card mb-3" style="max-height: 60vh; overflow:auto;">
+    <ul id="chat-list" class="list-group list-group-flush">
+      {% include "_chat_items.html" %}
+    </ul>
+  </div>
+
+  <form method="post" class="d-flex gap-2">
+    <input name="body" class="form-control" placeholder="Write a message..." required>
+    <button class="btn btn-primary">Send</button>
+  </form>
+</div>
+
+<script>
+  // simple polling every 3s for new messages
+  (function () {
+    // Quote the Jinja value so the JS parser is happy
+    let lastId = Number('{{ last_id|int }}');
+    const list = document.getElementById("chat-list");
+    const box  = document.getElementById("chat-box");
+
+    function fetchNew() {
+      fetch(`/chat/stream?since=${lastId}`)
+        .then(r => r.text())
+        .then(html => {
+          if (html.trim()) {
+            const temp = document.createElement('div');
+            temp.innerHTML = html;
+            const items = temp.querySelectorAll('li');
+            items.forEach(li => list.appendChild(li));
+            const last = list.lastElementChild;
+            if (last && last.dataset.id) lastId = parseInt(last.dataset.id);
+            box.scrollTop = box.scrollHeight;
+          }
+        })
+        .catch(() => {});
+    }
+    setInterval(fetchNew, 3000);
+  })();
+</script>
+{% endblock %}
