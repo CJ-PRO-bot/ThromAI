@@ -531,6 +531,18 @@ def leaderboard():
         my_rank = higher + 1
     return render_template("leaderboard.html", users=top_users, my_rank=my_rank)
 
+@app.route("/setup/promote_me")
+@login_required
+def setup_promote_me():
+    token = request.args.get("token", "")
+    if token != os.getenv("ADMIN_SETUP_TOKEN"):
+        return "Forbidden", 403
+    u = User.query.get(current_user.id)
+    if not u:
+        return "User not found", 404
+    u.role = "admin"
+    db.session.commit()
+    return "You are now admin. Remove this route and the token!"
 # Blueprints
 try:
     from routes.hotspots import bp_hotspots
