@@ -62,7 +62,7 @@
             <div class="d-flex justify-content-between">
               <div>
                 <b>#{{ s.id }}</b>
-                <span class="text-muted">· {{ s.created_at }}</span>
+                <span class="text-muted">· {{ s.created_at|bt_time }}</span>
                 {% if s.duplicate_of %}<span class="badge bg-warning text-dark">Duplicate of #{{ s.duplicate_of }}</span>{% endif %}
                 {% if s.status == 'AUTO_OK' %}<span class="badge bg-success">AI OK</span>{% else %}<span class="badge bg-secondary">AI Recheck</span>{% endif %}
                 {% if s.human_state != 'unreviewed' %}
@@ -106,7 +106,7 @@
               {% endif %}
 
               {% if tab != 'pending' %}
-                <span class="small text-muted">Reviewed by: {{ s.reviewed_by or '—' }} at {{ s.reviewed_at or '—' }}</span>
+                <span class="small text-muted">Reviewed by: {{ s.reviewed_by or '—' }} at {{ s.reviewed_at and (s.reviewed_at|bt_time) or '—' }}</span>
               {% endif %}
             </div>
           </div>

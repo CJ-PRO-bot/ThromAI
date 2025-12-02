@@ -14,6 +14,10 @@ class User(db.Model, UserMixin):
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(16), default="user")
 
+    # profile
+    photo_url = db.Column(db.String(256))  # relative path under static/uploads
+    bio = db.Column(db.String(160))
+
     # points / timestamps
     points = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

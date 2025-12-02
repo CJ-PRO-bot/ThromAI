@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}My History{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="m-0">My Report History</h2>
+  <div class="btn-group" role="group">
+    <a class="btn btn-sm {% if tab=='all' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('my_history', tab='all') }}">All</a>
+    <a class="btn btn-sm {% if tab=='approved' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('my_history', tab='approved') }}">Approved</a>
+    <a class="btn btn-sm {% if tab=='pending' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('my_history', tab='pending') }}">Pending</a>
+    <a class="btn btn-sm {% if tab=='rejected' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('my_history', tab='rejected') }}">Rejected</a>
+  </div>
+</div>
+<div class="card shadow-sm">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table align-middle table-hover">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Preview</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Date</th>
+            <th>Admin comment</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in rows %}
+            <tr>
+              <td>#{{ s.id }}</td>
+              <td><img src="/{{ s.image_path }}" style="width:60px;height:40px;object-fit:cover;border-radius:4px"></td>
+              <td>{{ s.report_type.replace('_',' ')|title }}</td>
+              <td>
+                {% if s.human_state == 'approved' %}
+                  <span class="badge bg-success">Approved</span>
+                {% elif s.human_state == 'rejected' %}
+                  <span class="badge bg-danger">Rejected</span>
+                {% elif s.human_state == 'flagged' %}
+                  <span class="badge bg-warning text-dark">Flagged</span>
+                {% else %}
+                  <span class="badge bg-secondary">Pending</span>
+                {% endif %}
+              </td>
+              <td>{{ s.created_at|bt_time }}</td>
+              <td class="text-muted small">{{ s.notes_admin or '-' }}</td>
+              <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('result', sid=s.id) }}">Details</a></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="text-muted">No reports in this filter.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

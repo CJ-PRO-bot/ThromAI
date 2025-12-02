@@ -14,7 +14,7 @@
               <b>{{ a.place.name }}</b>
               {% if a.place.description %}<span class="text-muted">— {{ a.place.description }}</span>{% endif %}
             </div>
-            <small class="text-muted">assigned {{ a.assigned_at }}</small>
+            <small class="text-muted">assigned {{ a.assigned_at|bt_time }}</small>
           </li>
         {% endfor %}
       </ul>

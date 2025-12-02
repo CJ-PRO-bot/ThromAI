@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Admin · Users{% endblock %}
+{% block content %}
+<h2 class="mb-3">Manage Users</h2>
+<form class="row g-2 mb-3">
+  <div class="col-sm-6 col-md-4">
+    <input class="form-control" name="q" value="{{ q or '' }}" placeholder="Search by username or email">
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-primary">Search</button>
+  </div>
+</form>
+<div class="card shadow-sm">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table align-middle table-hover">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Points</th>
+            <th>Joined</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+            <tr>
+              <td>
+                <div class="d-flex align-items-center gap-2">
+                  <img src="/{{ u.photo_url or '' }}" onerror="this.src='https://ui-avatars.com/api/?name={{ u.username }}'" class="rounded-circle" style="width:36px;height:36px;object-fit:cover">
+                  <div>{{ u.username }}</div>
+                </div>
+              </td>
+              <td>{{ u.email }}</td>
+              <td>{{ u.role }}</td>
+              <td>{{ u.points or 0 }}</td>
+              <td>{{ u.created_at|bt_time('%Y-%m-%d') }}</td>
+              <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_user_detail', uid=u.id) }}">Manage</a></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="6" class="text-muted">No users found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

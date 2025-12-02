@@ -4,7 +4,73 @@
 <h2>Submission #{{ submission.id }}</h2>
 <p><b>Section:</b> {{ submission.report_type.replace('_',' ')|title }}</p>
 
+<div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+  <a class="btn btn-sm btn-outline-primary" id="fbShareSub" target="_blank" rel="noopener">Share on Facebook</a>
+  <button class="btn btn-sm btn-outline-dark" id="ttShareSub" type="button">Share on TikTok</button>
+</div>
 <img src="/{{ submission.image_path }}" class="img-fluid mb-3" style="max-width:480px">
+
+<canvas id="subCanvas" class="d-none" width="800" height="418"></canvas>
+<script>
+(function(){
+  const site = window.location.origin;
+  const subId = {{ submission.id }};
+  const pts = {{ (current_user.points or 0)|tojson }};
+  function buildText(){
+    return `I just contributed to PhotoVerifier (submission #${subId}). Join me to keep our community clean! ${site}`;
+  }
+  const fb = document.getElementById('fbShareSub');
+  if (fb){
+    const text = encodeURIComponent(buildText());
+    const url = encodeURIComponent(site + '/result/' + subId);
+    fb.href = `https://www.facebook.com/sharer/sharer.php?u=${url}&quote=${text}`;
+  }
+  const canvas = document.getElementById('subCanvas');
+  function drawCard(){
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#198754';
+    ctx.fillRect(0,0,800,418);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(24,24,752,370);
+    ctx.fillStyle = '#198754';
+    ctx.font = '700 36px system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillText('I made a verified report!', 48, 90);
+    ctx.fillStyle = '#212529';
+    ctx.font = '400 22px system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillText(`Submission #${subId}`, 48, 150);
+    ctx.fillText(`My points: ${pts}`, 48, 182);
+    ctx.fillStyle = '#6c757d';
+    ctx.font = '400 18px system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillText('Join the cleanup challenge → ' + site, 48, 360);
+  }
+  function dataUrlToFile(dataUrl, filename){
+    const arr = dataUrl.split(',');
+    const mime = arr[0].match(/:(.*?);/)[1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while(n--){ u8arr[n] = bstr.charCodeAt(n); }
+    return new File([u8arr], filename, {type: mime});
+  }
+  const tt = document.getElementById('ttShareSub');
+  if (tt && navigator.share){
+    tt.addEventListener('click', async ()=>{
+      try{
+        drawCard();
+        const file = dataUrlToFile(canvas.toDataURL('image/png'), 'submission.png');
+        await navigator.share({ title: 'My PhotoVerifier report', text: buildText(), files: [file] });
+      }catch(e){
+        alert('Share not supported on this device. Image downloaded instead.');
+        drawCard();
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png'); a.download = 'submission.png'; a.click();
+      }
+    });
+  } else if (tt){
+    tt.addEventListener('click', ()=>{ drawCard(); const a=document.createElement('a'); a.href=canvas.toDataURL('image/png'); a.download='submission.png'; a.click(); });
+  }
+})();
+</script>
 
 <div class="card mb-3">
   <div class="card-body">
@@ -104,7 +170,7 @@
 <ul class="list-group mb-3">
   {% for m in submission.messages %}
     <li class="list-group-item">
-      <b>{{ m.sender.username }}</b>: {{ m.body }} <small class="text-muted">{{ m.created_at }}</small>
+      <b>{{ m.sender.username }}</b>: {{ m.body }} <small class="text-muted">{{ m.created_at|bt_time }}</small>
     </li>
   {% else %}
     <li class="list-group-item text-muted">No messages yet.</li>

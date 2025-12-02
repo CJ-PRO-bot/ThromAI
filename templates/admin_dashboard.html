@@ -30,7 +30,7 @@
 <ul class="list-group">
   {% for s in rechecks %}
     <li class="list-group-item d-flex justify-content-between align-items-center">
-      <span>#{{ s.id }} — {{ s.user.username }} — {{ s.created_at }} — <i>{{ s.report_type.replace('_',' ')|title }}</i></span>
+      <span>#{{ s.id }} — {{ s.user.username }} — {{ s.created_at|bt_time }} — ...
       <div class="btn-group">
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('result', sid=s.id) }}">view</a>
         <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_review', tab='pending') }}#s{{ s.id }}">review</a>

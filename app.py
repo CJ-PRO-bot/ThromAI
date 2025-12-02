@@ -7,7 +7,8 @@ from flask_limiter.util import get_remote_address
 from sqlalchemy import desc, func
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(), override=True)
-
+from datetime import timezone
+from zoneinfo import ZoneInfo
 import os
 import uuid
 from pathlib import Path
@@ -77,14 +78,40 @@ limiter = Limiter(get_remote_address, app=app, default_limits=["60 per hour"])
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret")
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
-DB_PATH = (ROOT / "site.db").resolve()
-app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{DB_PATH.as_posix()}"
+# Database configuration: prefer DATABASE_URL if provided (Postgres recommended)
+DEFAULT_SQLITE_URL = f"sqlite:///{(ROOT / 'site.db').resolve().as_posix()}"
+DB_URL = os.getenv("DATABASE_URL", DEFAULT_SQLITE_URL)
+app.config["SQLALCHEMY_DATABASE_URI"] = DB_URL
 app.config["REMEMBER_COOKIE_DURATION"] = timedelta(days=30)
 
 app.config["UPLOAD_FOLDER"] = os.path.join(app.root_path, "static", "uploads")
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 db.init_app(app)
+
+# ---- Local time formatting (Asia/Thimphu) ----
+def _get_thimphu_tz():
+    try:
+        return ZoneInfo("Asia/Thimphu")
+    except Exception:
+        # Fallback fixed +06:00 if zoneinfo DB missing (Windows etc.)
+        from datetime import timedelta
+        from datetime import timezone as dt_timezone
+        return dt_timezone(timedelta(hours=6))
+
+_THIMPHU = _get_thimphu_tz()
+
+def bt_time(dt, fmt="%Y-%m-%d %I:%M %p"):
+    """Render a UTC/naive datetime as Asia/Thimphu local time."""
+    if dt is None:
+        return ""
+    # Treat naive datetimes as UTC (your app uses datetime.utcnow())
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_THIMPHU).strftime(fmt)
+
+# Register in Jinja
+app.jinja_env.filters["bt_time"] = bt_time
 
 try:
     with app.app_context():
@@ -206,10 +233,9 @@ def _save_and_score(file_storage, report_type, msg, lat, lon):
 
     return sub
 
-# -------------------------
 # Auth
-# -------------------------
-@app.route("/register", methods=["GET", "POST"])
+
+@app.route("/register", methods=["GET", "POST"])  #POST METHOD HELP SENT DATA TO HTTP
 def register():
     if request.method == "POST":
         u = request.form.get("username", "").strip()
@@ -249,9 +275,8 @@ def logout():
     flash("Logged out.")
     return redirect(url_for("login"))
 
-# -------------------------
 # Upload (form) + message
-# -------------------------
+
 @app.route("/", methods=["GET", "POST"])
 @login_required
 def index():
@@ -322,9 +347,8 @@ def post_message(sid):
 
     return redirect(url_for("result", sid=sid))
 
-# -------------------------
 # Admin (legacy dashboard)
-# -------------------------
+
 @app.route("/admin")
 @login_required
 @admin_required
@@ -373,9 +397,8 @@ def admin_set_category(sid):
     flash("Category updated.")
     return redirect(url_for("result", sid=sid))
 
-# -------------------------
 # NEW REVIEW CONSOLE
-# -------------------------
+
 def _queue_base_query(tab: str):
     q = Submission.query
     if tab == "pending":
@@ -531,18 +554,104 @@ def leaderboard():
         my_rank = higher + 1
     return render_template("leaderboard.html", users=top_users, my_rank=my_rank)
 
-@app.route("/setup/promote_me")
+@app.route("/u/<int:uid>")
 @login_required
-def setup_promote_me():
-    token = request.args.get("token", "")
-    if token != os.getenv("ADMIN_SETUP_TOKEN"):
-        return "Forbidden", 403
-    u = User.query.get(current_user.id)
-    if not u:
-        return "User not found", 404
-    u.role = "admin"
-    db.session.commit()
-    return "You are now admin. Remove this route and the token!"
+def public_profile(uid):
+    u = User.query.get_or_404(uid)
+    # Aggregate stats for this user
+    total = Submission.query.filter_by(user_id=u.id).count()
+    approved = Submission.query.filter_by(user_id=u.id, human_state="approved").count()
+    rejected = Submission.query.filter_by(user_id=u.id, human_state="rejected").count()
+    pending = Submission.query.filter_by(user_id=u.id, human_state="unreviewed").count()
+    recent = Submission.query.filter_by(user_id=u.id).order_by(Submission.created_at.desc()).limit(50).all()
+    return render_template("profile.html", user=u, stats={
+        "total": total, "approved": approved, "rejected": rejected, "pending": pending
+    }, recent=recent)
+
+# ---- Profile & history ----
+@app.route("/profile", methods=["GET", "POST"])
+@login_required
+def profile():
+    # Basic stats
+    total = Submission.query.filter_by(user_id=current_user.id).count()
+    approved = Submission.query.filter_by(user_id=current_user.id, human_state="approved").count()
+    rejected = Submission.query.filter_by(user_id=current_user.id, human_state="rejected").count()
+    pending = Submission.query.filter_by(user_id=current_user.id, human_state="unreviewed").count()
+
+    # Update profile (photo + bio)
+    if request.method == "POST":
+        bio = (request.form.get("bio") or "").strip()[:160]
+        f = request.files.get("photo")
+        if f and f.filename:
+            if allowed_file(f.filename):
+                filename = unique_filename(f.filename)
+                save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+                f.save(save_path)
+                rel = os.path.relpath(save_path, app.root_path).replace("\\", "/")
+                current_user.photo_url = rel
+            else:
+                flash("Unsupported profile image format.")
+        current_user.bio = bio
+        db.session.commit()
+        flash("Profile updated.")
+        return redirect(url_for("profile"))
+
+    # List recent submissions for quick view
+    recent = Submission.query.filter_by(user_id=current_user.id).order_by(Submission.created_at.desc()).limit(10).all()
+    return render_template("profile.html", user=current_user, stats={
+        "total": total, "approved": approved, "rejected": rejected, "pending": pending
+    }, recent=recent)
+
+@app.route("/history")
+@login_required
+def my_history():
+    tab = (request.args.get("tab") or "all").lower()
+    q = Submission.query.filter_by(user_id=current_user.id)
+    if tab == "approved":
+        q = q.filter(Submission.human_state == "approved")
+    elif tab == "rejected":
+        q = q.filter(Submission.human_state == "rejected")
+    elif tab == "pending":
+        q = q.filter(Submission.human_state == "unreviewed")
+    rows = q.order_by(Submission.created_at.desc()).limit(200).all()
+    return render_template("history.html", rows=rows, tab=tab)
+
+# Admin: manage users quickly
+@app.route("/admin/users")
+@login_required
+@admin_required
+def admin_users():
+    q = request.args.get("q", "").strip()
+    users = User.query
+    if q:
+        users = users.filter((User.username.ilike(f"%{q}%")) | (User.email.ilike(f"%{q}%")))
+    users = users.order_by(User.created_at.desc()).limit(200).all()
+    return render_template("admin_users.html", users=users, q=q)
+
+@app.route("/admin/user/<int:uid>", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_user_detail(uid):
+    u = User.query.get_or_404(uid)
+    if request.method == "POST":
+        # allow admin to update basic fields
+        u.username = (request.form.get("username") or u.username).strip()[:80]
+        u.email = (request.form.get("email") or u.email).strip()[:120]
+        u.role = (request.form.get("role") or u.role).strip()[:16]
+        u.bio = (request.form.get("bio") or u.bio or "").strip()[:160]
+        f = request.files.get("photo")
+        if f and f.filename and allowed_file(f.filename):
+            filename = unique_filename(f.filename)
+            save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            f.save(save_path)
+            u.photo_url = os.path.relpath(save_path, app.root_path).replace("\\", "/")
+        db.session.commit()
+        flash("User updated")
+        return redirect(url_for("admin_user_detail", uid=u.id))
+
+    subs = Submission.query.filter_by(user_id=u.id).order_by(Submission.created_at.desc()).limit(200).all()
+    return render_template("admin_user_detail.html", user=u, rows=subs)
+
 # Blueprints
 try:
     from routes.hotspots import bp_hotspots
@@ -559,4 +668,5 @@ except Exception as e:
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
+        print("[INFO] Using SQLALCHEMY_DATABASE_URI=", app.config.get("SQLALCHEMY_DATABASE_URI"))
     app.run(debug=True, use_reloader=False)

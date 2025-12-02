@@ -4,13 +4,20 @@
 <h1 class="mb-3">🏆 Leaderboard</h1>
 
 {% if my_rank %}
-  <p class="text-muted">Your rank: <b>#{{ my_rank }}</b> — {{ current_user.points or 0 }} pts</p>
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <p class="text-muted m-0">Your rank: <b>#{{ my_rank }}</b> — {{ current_user.points or 0 }} pts</p>
+    <button id="shareMyStats" class="btn btn-sm btn-primary">Share my points</button>
+    <div class="btn-group btn-group-sm" role="group" aria-label="share">
+      <a id="fbShareBtn" class="btn btn-outline-primary" target="_blank" rel="noopener">Facebook</a>
+      <button id="ttShareBtn" class="btn btn-outline-dark" type="button">TikTok</button>
+    </div>
+  </div>
 {% endif %}
 
 <div class="card shadow-sm">
   <div class="card-body">
     <div class="table-responsive">
-      <table class="table align-middle">
+      <table class="table align-middle table-hover">
         <thead>
           <tr>
             <th style="width:80px;">Rank</th>
@@ -22,7 +29,7 @@
           {% for u in users %}
             <tr {% if current_user.is_authenticated and u.id == current_user.id %}class="table-warning"{% endif %}>
               <td>#{{ loop.index }}</td>
-              <td>{{ u.username }}</td>
+              <td><a href="{{ url_for('public_profile', uid=u.id) }}" class="text-decoration-none">{{ u.username }}</a></td>
               <td class="text-end">{{ u.points or 0 }}</td>
             </tr>
           {% else %}
@@ -36,4 +43,108 @@
     <p class="text-muted mb-0">Points are awarded when an admin approves a valid report.</p>
   </div>
 </div>
+
+<canvas id="shareCanvas" class="d-none" width="800" height="418"></canvas>
+<script>
+(function(){
+  const username = {{ (current_user.username|tojson) if current_user.is_authenticated else 'null' }};
+  const points = {{ (current_user.points or 0)|tojson if current_user.is_authenticated else '0' }};
+  const rank = {{ (my_rank or 0)|tojson }};
+  const site = window.location.origin;
+
+  function buildShareText(){
+    return `I have ${points} pts on PhotoVerifier and I'm ranked #${rank}! Join the cleanup challenge → ${site}`;
+  }
+
+  const fbShare = document.getElementById('fbShareBtn');
+  if (fbShare){
+    const text = encodeURIComponent(buildShareText());
+    const url = encodeURIComponent(site + '/leaderboard');
+    fbShare.href = `https://www.facebook.com/sharer/sharer.php?u=${url}&quote=${text}`;
+  }
+
+  const canvas = document.getElementById('shareCanvas');
+  function drawCard(){
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#0d6efd';
+    ctx.fillRect(0,0,800,418);
+
+    // white panel
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(24,24,752,370);
+
+    // title
+    ctx.fillStyle = '#0d6efd';
+    ctx.font = '700 36px system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillText('PhotoVerifier Leaderboard', 48, 90);
+
+    // username and stats
+    ctx.fillStyle = '#212529';
+    ctx.font = '600 28px system-ui, -apple-system, Segoe UI, Roboto';
+    const u = username || 'Anonymous';
+    ctx.fillText(u, 48, 150);
+
+    ctx.font = '400 22px system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillText(`Rank: #${rank}`, 48, 190);
+    ctx.fillText(`Points: ${points}`, 48, 220);
+
+    // footer
+    ctx.fillStyle = '#6c757d';
+    ctx.font = '400 18px system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillText('Join the cleanup challenge → ' + site, 48, 360);
+  }
+
+  function dataUrlToFile(dataUrl, filename){
+    const arr = dataUrl.split(',');
+    const mime = arr[0].match(/:(.*?);/)[1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while(n--){ u8arr[n] = bstr.charCodeAt(n); }
+    return new File([u8arr], filename, {type: mime});
+  }
+
+  const shareBtn = document.getElementById('shareMyStats');
+  if (shareBtn){
+    shareBtn.addEventListener('click', ()=>{
+      drawCard();
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url; a.download = 'my-photov-verifier-stats.png';
+      a.click();
+    });
+  }
+
+  const ttBtn = document.getElementById('ttShareBtn');
+  if (ttBtn && navigator.share){
+    ttBtn.addEventListener('click', async ()=>{
+      try{
+        drawCard();
+        const blobUrl = canvas.toDataURL('image/png');
+        const file = dataUrlToFile(blobUrl, 'stats.png');
+        await navigator.share({
+          title: 'My PhotoVerifier points',
+          text: buildShareText(),
+          files: [file]
+        });
+      }catch(err){
+        alert('Share not supported on this device. Image downloaded instead.');
+        drawCard();
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = 'stats.png';
+        a.click();
+      }
+    });
+  } else if (ttBtn){
+    ttBtn.addEventListener('click', ()=>{
+      drawCard();
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = 'stats.png';
+      a.click();
+    });
+  }
+})();
+</script>
 {% endblock %}
