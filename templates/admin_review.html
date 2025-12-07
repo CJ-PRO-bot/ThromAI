@@ -74,6 +74,13 @@
                 {% if s.lat and s.lon %}
                   <div class="small text-muted">{{ '%.5f'|format(s.lat) }}, {{ '%.5f'|format(s.lon) }}</div>
                 {% endif %}
+                {% if s.reporter_location %}
+                  <div>
+                    <span class="badge {% if s.reporter_location=='at_place' %}bg-primary{% else %}bg-warning text-dark{% endif %}">
+                      {{ 'At place' if s.reporter_location=='at_place' else 'Other place' }}
+                    </span>
+                  </div>
+                {% endif %}
               </div>
             </div>
 

@@ -71,6 +71,9 @@ class Submission(db.Model):
     lat = db.Column(db.Float)
     lon = db.Column(db.Float)
 
+    # Reporter location self-declared: 'at_place' | 'other_place'
+    reporter_location = db.Column(db.String(16))
+
     # AI fields (machine side)
     ai_label = db.Column(db.String(32))
     ai_score = db.Column(db.Float)
@@ -167,3 +170,4 @@ class SupwAssignment(db.Model):
     __table_args__ = (
         db.UniqueConstraint("place_id", "user_id", name="uq_place_user"),
     )
+#checked

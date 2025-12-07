@@ -32,6 +32,19 @@
       <label class="form-label mt-3">Message (optional)</label>
       <textarea class="form-control" name="message" rows="3" placeholder="Add a note..."></textarea>
 
+      <div class="mt-3">
+        <label class="form-label">Where are you reporting from?</label>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="reporter_location" id="loc_here" value="at_place" required>
+          <label class="form-check-label" for="loc_here">I am at the reported place</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="reporter_location" id="loc_other" value="other_place" required>
+          <label class="form-check-label" for="loc_other">I am reporting from another place</label>
+        </div>
+        <div class="form-text">This helps admins verify if the photo location matches your current location.</div>
+      </div>
+
       <!-- Hidden fallback GPS -->
       <input type="hidden" name="lat" id="lat">
       <input type="hidden" name="lon" id="lon">
@@ -220,6 +233,8 @@ form.addEventListener('submit', async (e) => {
     fd.append('message', form.querySelector('[name="message"]').value || '');
     fd.append('lat', document.getElementById('lat').value || '');
     fd.append('lon', document.getElementById('lon').value || '');
+    const rl = form.querySelector('input[name="reporter_location"]:checked');
+    fd.append('reporter_location', rl ? rl.value : '');
 
     const res = await fetch('/upload_api', { method: 'POST', body: fd });
     const j = await res.json();

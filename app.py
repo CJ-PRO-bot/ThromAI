@@ -162,7 +162,7 @@ def _award_points_once(sub: Submission, approver_id: int | None):
     if not sub.approved_by and approver_id:
         sub.approved_by = approver_id
 
-def _save_and_score(file_storage, report_type, msg, lat, lon):
+def _save_and_score(file_storage, report_type, msg, lat, lon, reporter_location=None):
     fname = unique_filename(getattr(file_storage, "filename", "camera.jpg"))
     path = os.path.join(app.config["UPLOAD_FOLDER"], fname)
     file_storage.save(path)
@@ -206,6 +206,7 @@ def _save_and_score(file_storage, report_type, msg, lat, lon):
         image_path=os.path.relpath(path, app.root_path).replace("\\", "/"),
         lat=(float(lat) if lat not in (None, "", "null") else None),
         lon=(float(lon) if lon not in (None, "", "null") else None),
+        reporter_location=(reporter_location if reporter_location in ("at_place", "other_place") else None),
         ai_label=scores.get("ai_label"),
         ai_score=scores.get("action_score"),
         status=scores.get("status"),
@@ -284,6 +285,7 @@ def index():
         report_type = request.form.get("report_type", "illegal_dumping")
         f = request.files.get("photo")
         msg = request.form.get("message", "").strip()
+        reporter_location = request.form.get("reporter_location", "").strip()
 
         if not f or f.filename == "":
             flash("No file selected.")
@@ -293,7 +295,10 @@ def index():
             return redirect(url_for("index"))
 
         lat = request.form.get("lat"); lon = request.form.get("lon")
-        sub = _save_and_score(f, report_type, msg, lat, lon)
+        if reporter_location not in ("at_place", "other_place"):
+            flash("Please choose where you are reporting from.")
+            return redirect(url_for("index"))
+        sub = _save_and_score(f, report_type, msg, lat, lon, reporter_location)
         return redirect(url_for("result", sid=sub.id))
 
     return render_template("index.html")
@@ -308,7 +313,10 @@ def upload_api():
     msg = request.form.get("message", "").strip()
     lat = request.form.get("lat")
     lon = request.form.get("lon")
-    sub = _save_and_score(f, report_type, msg, lat, lon)
+    reporter_location = request.form.get("reporter_location", "").strip()
+    if reporter_location not in ("at_place", "other_place"):
+        return jsonify({"ok": False, "error": "Missing reporter_location"}), 400
+    sub = _save_and_score(f, report_type, msg, lat, lon, reporter_location)
     return jsonify({"ok": True, "redirect": url_for("result", sid=sub.id)})
 
 @app.route("/result/<int:sid>")
